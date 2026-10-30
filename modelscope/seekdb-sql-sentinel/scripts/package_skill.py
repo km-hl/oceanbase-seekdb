@@ -9,8 +9,8 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "seekdb-sql-sentinel"
-INCLUDE = ("SKILL.md", "README.md", "scripts/sql_check.py",
-           "scripts/package_skill.py", "examples/demo.sql", "tests/test_sql_check.py")
+INCLUDE = ("SKILL.md", "scripts/sql_check.py",
+           "scripts/package_skill.py", "examples/demo.sql")
 
 
 def check_skill(verification_file: Path | None, require_verification: bool) -> None:
