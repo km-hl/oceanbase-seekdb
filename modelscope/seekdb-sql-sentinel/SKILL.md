@@ -83,3 +83,5 @@ Do not claim an index was used or that performance improved until a real plan an
 ## OceanBase contest verification
 
 For the OceanBase “魔搭 Skill 发布” challenge, click “获取验证行” in the challenge dialog first. Append the complete actual verification line **verbatim as the final line of this SKILL.md** before packaging and publicly publishing the Skill on ModelScope. Do not use an invented placeholder or a different team's verification line. If a new verification line is generated, append the new one and republish before retesting.
+
+<!-- OB-S:bveZfjrOXVKyTl2yuIQ2NA -->
