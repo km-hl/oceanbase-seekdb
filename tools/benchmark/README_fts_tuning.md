@@ -56,7 +56,7 @@ python3 tools/benchmark/fts_semantics_compare.py \
   --after-mysql 'mysql -h127.0.0.1 -P2882 -uroot'
 ```
 
-可先使用 `--tokenize-only` 只比较 Space、Beng、IK 的大小写、数字、重复词、Unicode 和中英混合分词，无需建索引。完整检查还比较表行数和四种 `MATCH ... AGAINST` 查询的结果计数。
+可先使用 `--tokenize-only` 只比较 Space、Beng、IK 的大小写、数字、重复词、Unicode 和中英混合分词，无需建索引。完整检查还比较表行数、四种 `MATCH ... AGAINST` 查询的结果计数，以及三组按相关性分数与 id 稳定排序的 Top-50 行和 BM25 分数。
 
 **局限**：这组语义冒烟测试不是穷举，也不能代替全量回归、真实查询集召回率测试及编译测试。正式提测前应确认内核编译通过、完整回归通过且优化前后召回率不下降。
 
