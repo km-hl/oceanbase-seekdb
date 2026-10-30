@@ -25,6 +25,9 @@ TOKEN_CASES = [
     ("beng_unicode", "SELECT tokenize('Résumé CAFÉ database Engine TEST123', 'beng');"),
     ("ik_mixed", "SELECT tokenize('OceanBase 全文索引分词器 Database 搜索引擎', 'ik');"),
     ("ik_ascii", "SELECT tokenize('Database DATABASE database and quick', 'ik');"),
+    ("space_general_ci", "SELECT tokenize(_utf8mb4'THe DATABASE id_42' COLLATE utf8mb4_general_ci, 'space');"),
+    ("space_unicode_ci", "SELECT tokenize(_utf8mb4'THe CAFÉ id_42' COLLATE utf8mb4_unicode_ci, 'space');"),
+    ("space_binary", "SELECT tokenize(_utf8mb4'THe CAFÉ id_42' COLLATE utf8mb4_bin, 'space');"),
 ]
 
 INDEX_CASES = [
@@ -33,6 +36,9 @@ INDEX_CASES = [
     ("beng_match", "SELECT COUNT(*) FROM fts_large_bench.docs WHERE MATCH(title_en, content_en) AGAINST('database performance audit');"),
     ("mixed_match", "SELECT COUNT(*) FROM fts_large_bench.docs WHERE MATCH(title, content) AGAINST('OceanBase 稳定 database');"),
     ("limited_match", "SELECT COUNT(*) FROM (SELECT id FROM fts_large_bench.docs WHERE MATCH(content) AGAINST('倒排索引 tokenizer') LIMIT 20) t;"),
+    ("ranked_cn", "SELECT id, MATCH(title, content) AGAINST('全文索引 分词器') AS score FROM fts_large_bench.docs WHERE MATCH(title, content) AGAINST('全文索引 分词器') ORDER BY score DESC, id LIMIT 50;"),
+    ("ranked_beng", "SELECT id, MATCH(title_en, content_en) AGAINST('database performance audit') AS score FROM fts_large_bench.docs WHERE MATCH(title_en, content_en) AGAINST('database performance audit') ORDER BY score DESC, id LIMIT 50;"),
+    ("ranked_limit", "SELECT id, MATCH(content) AGAINST('倒排索引 tokenizer') AS score FROM fts_large_bench.docs WHERE MATCH(content) AGAINST('倒排索引 tokenizer') ORDER BY score DESC, id LIMIT 50;"),
 ]
 
 
