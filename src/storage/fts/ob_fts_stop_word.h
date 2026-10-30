@@ -81,6 +81,9 @@ public:
   int check_stopword(const ObFTWord &word, bool &is_stopword);
 
 private:
+  // Lookup expects a word already expressed using stopword_type_'s collation.
+  int lookup_normalized_word(const common::ObString &word, bool &is_stopword);
+
   static const int64_t DEFAULT_STOPWORD_BUCKET_NUM = 37L;
   typedef common::hash::ObHashSet<storage::ObFTWord> StopWordSet;
 
