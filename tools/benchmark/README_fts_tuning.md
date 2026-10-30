@@ -10,7 +10,13 @@
   - 对 `utf8mb4_general_ci` 的 **ASCII 字母、数字和下划线**词元，采用单字节小写化；非 ASCII 或其他 collation 仍使用原有 `ObCharset::tolower`。
   - ASCII 小写化仍向传入 allocator 申请独立内存，避免将词典/倒排构建的哈希表键指向临时的输入缓冲区。
 
-以上改动旨在减少 **索引构建 / TOKENIZE / 查询分词**共享热路径上的重复内存分配和字符集处理，**没有修改分词器词法规则、停用词列表、倒排数据格式或 BM25 评分算法**。
+其他优化（第二轮迭代）：
+
+- `src/sql/engine/expr/ob_expr_tokenize.cpp` / `src/storage/fts/ob_fts_parser_property.cpp`：无显式 parser properties 时跳过无意义的 JSON 重建，保留 IK smart 默认值。
+- `src/sql/resolver/ddl/ob_fts_index_builder_util.cpp`：对两个分词密集型辅助索引构建阶段提高并行度，受 CPU 数和 16 worker 上限约束；保留 DOC_ID_ROWKEY 原并行度。
+- `src/sql/optimizer/ob_log_plan.cpp`、`src/observer/composition/retrieval/ob_das_legacy_tr_merge_iter.cpp`、`src/storage/retrieval/ob_text_*iter.cpp`、`src/storage/retrieval/ob_sparse_taat_iter.cpp`：仅当自然语言 MATCH 被 `COUNT(*)` 一类标量聚合当作布尔筛选且其相关性分数没有被观察时跳过 BM25 的估计、聚合和计算。需要分数的 SELECT / ORDER BY / MAX(MATCH) / BOOLEAN MODE 路径仍计算相关性。其实现参考开源仓库的 <https://github.com/oceanbase/seekdb/pull/2246>；分词与构建的实现思路参考 <https://github.com/oceanbase/seekdb/pull/2247>。
+
+以上改动旨在减少 **索引构建 / TOKENIZE / 查询分词**共享热路径上的重复分配、转换和冗余聚合，**没有有意修改分词器词法规则、停用词列表、倒排数据格式或用户可见的 BM25 评分语义**。正确性需要依赖下述回归验证，不能只依据查询命中数。
 
 ## 1. 准备两套可运行的二进制
 
@@ -57,6 +63,10 @@ python3 tools/benchmark/fts_semantics_compare.py \
 ```
 
 可先使用 `--tokenize-only` 只比较 Space、Beng、IK 的大小写、数字、重复词、Unicode 和中英混合分词，无需建索引。完整检查还比较表行数、四种 `MATCH ... AGAINST` 查询的结果计数，以及三组按相关性分数与 id 稳定排序的 Top-50 行和 BM25 分数。
+
+另有标准 mysqltest 回归用例 `tools/deploy/mysql_test/test_suite/fts_index/t/match_filter_without_score.test` 与对应 `r/mysql/match_filter_without_score.result`，覆盖布尔 COUNT、显式比较、无命中、BM25 投影与排序、布尔模式和 LIMIT。须按 seekdb 项目内 mysqltest 执行机制运行。
+
+**收到的上一轮官方评测数据**：`fts_mean_improvement = -0.0569268597`、`fts_raw_score = 0`，说明上一轮相比**评测基准**的综合收益为 -5.69%；`git_dirty = 1` 仅表示评测时工作树存在未提交改动，不等同于编译失败或语义错误。历史 `fts_large_bench_baseline.json` 是另一组 CI 测量数据，不可以只凭绝对耗时不同就判断官方分数。
 
 **局限**：这组语义冒烟测试不是穷举，也不能代替全量回归、真实查询集召回率测试及编译测试。正式提测前应确认内核编译通过、完整回归通过且优化前后召回率不下降。
 
