@@ -1,8 +1,8 @@
 name: Compile
 
 on:
-  # Compile is temporarily disabled while fixes are pending.
-  # Restore the push/pull_request entries below when ready.
+  push:
+    branches: [competition-all-four]
   workflow_call:
   # push:
   #   branches: [ master, develop ]
