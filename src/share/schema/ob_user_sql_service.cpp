@@ -56,6 +56,7 @@ int ObUserSqlService::create_user(
   const ObSchemaOperationType type = OB_DDL_CREATE_USER;
   if (!user.is_valid()) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("Input arguments error", K(user), K(ret));
   } else if (OB_FAIL(replace_user(user, new_schema_version,
                                   ddl_stmt_str, sql_client,
                                   type))) {
@@ -73,6 +74,7 @@ int ObUserSqlService::alter_user(
   const ObSchemaOperationType type = OB_DDL_ALTER_USER;
   if (!user.is_valid()) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("Input arguments error", K(user), K(ret));
   } else if (OB_FAIL(replace_user(user, new_schema_version,
                                   ddl_stmt_str, sql_client,
                                   type))) {
@@ -88,10 +90,11 @@ int ObUserSqlService::replace_user(
     const ObSchemaOperationType type)
 {
   int ret = OB_SUCCESS;
-  
-  
+
+
   if (!user.is_valid()) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("Input arguments error", K(user), K(ret));
   } else {
     int64_t affected_rows = 0;
     ObDMLExecHelper exec(sql_client);
@@ -101,19 +104,22 @@ int ObUserSqlService::replace_user(
 
     // insert into __all_user
     if (FAILEDx(exec.exec_replace(OB_ALL_USER_TNAME, dml, affected_rows))) {
+      LOG_WARN("execute insert failed", K(ret));
     } else if (!is_single_row(affected_rows) && !is_double_row(affected_rows)) {
       // It may replace __all_user while reply schema in standby cluster.
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("affected_rows unexpected", K(affected_rows), K(ret));
     }
 
     // insert into __all_user_history
     if (FAILEDx(add_user_history(user, new_schema_version, sql_client, false))) {
+      LOG_WARN("add_user_history failed", K(user), K(new_schema_version), K(ret));
     }
 
     // log operations
     if (OB_SUCC(ret)) {
       ObSchemaOperation priv_operation;
-      
+
       priv_operation.user_id_ = user.get_user_id();
       priv_operation.op_type_ = type;
       priv_operation.schema_version_ = new_schema_version;
@@ -134,7 +140,7 @@ int ObUserSqlService::drop_user_delete_role_grantee_map(bool is_role,
 {
   int ret = OB_SUCCESS;
   CK (NULL != user);
-  
+
   const uint64_t user_id = user->get_user_id();
   const ObUserInfo *tmp_user = NULL;
   int64_t affected_rows = 0;
@@ -156,10 +162,12 @@ int ObUserSqlService::drop_user_delete_role_grantee_map(bool is_role,
     } else if (FAILEDx(del_sql.append_fmt("DELETE FROM %s WHERE GRANTEE_ID = %lu and ROLE_ID IN (",
         OB_ALL_ROLE_GRANTEE_MAP_TNAME,
         ObSchemaUtils::get_extract_schema_id(user_id)))) {
+      LOG_WARN("append table name failed, ", K(ret), K(user_id));
     }
 
     // insert new row into __all_role_grantee_map_history
     if (FAILEDx(insert_sql.append_fmt("INSERT INTO %s VALUES ", OB_ALL_ROLE_GRANTEE_MAP_HISTORY_TNAME))) {
+      LOG_WARN("append table name failed, ", K(ret));
     }
 
     // generate user_infos, del_sql, insert_sql
@@ -170,6 +178,7 @@ int ObUserSqlService::drop_user_delete_role_grantee_map(bool is_role,
       if (OB_FAIL(schema_guard.get_user_info(id, tmp_user))) {
       } else if (NULL == tmp_user) {
         ret = OB_ERR_UNEXPECTED;
+        LOG_WARN("user info is null", K(ret), K(id));
       } else {
         const ObUserInfo user_info = *tmp_user;
         if (OB_FAIL(user_infos.push_back(user_info))) {
@@ -182,6 +191,7 @@ int ObUserSqlService::drop_user_delete_role_grantee_map(bool is_role,
         }
       }
       if (FAILEDx(del_sql.append_fmt("%lu", ObSchemaUtils::get_extract_schema_id(id)))) {
+        LOG_WARN("append sql failed, ", K(ret), K(id));
       }
 
       // genereate insert sql stmt
@@ -190,13 +200,14 @@ int ObUserSqlService::drop_user_delete_role_grantee_map(bool is_role,
         }
       }
       const int64_t is_deleted = 1;
-      if (OB_SUCC(ret) && OB_FAIL(insert_sql.append_fmt("(now(6), now(6), %lu, %lu, %ld, %ld, %lu, %lu)", 
-          ObSchemaUtils::get_extract_schema_id(is_role ? id : user_id), 
+      if (OB_SUCC(ret) && OB_FAIL(insert_sql.append_fmt("(now(6), now(6), %lu, %lu, %ld, %ld, %lu, %lu)",
+          ObSchemaUtils::get_extract_schema_id(is_role ? id : user_id),
           ObSchemaUtils::get_extract_schema_id(is_role ? user_id : id),
           new_schema_version, 
           is_deleted,
           static_cast<uint64_t>(0), /* admin option. xinqi.zlm to do */
           static_cast<uint64_t>(0)/* disable flag. xinqi.zlm to do */))) {
+        LOG_WARN("append sql failed, ", K(ret));
       }
       is_first = false;
     }
@@ -206,6 +217,7 @@ int ObUserSqlService::drop_user_delete_role_grantee_map(bool is_role,
       } else if (OB_FAIL(sql_client.write(del_sql.ptr(), affected_rows))) {
       } else if (schema_id_array.count() != affected_rows) {
         ret = OB_ERR_UNEXPECTED;
+        LOG_WARN("del affected_rows is not expected", K(ret), K(affected_rows), K(schema_id_array.count()));
       }
     }
     // insert into __all_role_grantee_map_history
@@ -214,12 +226,14 @@ int ObUserSqlService::drop_user_delete_role_grantee_map(bool is_role,
       if (OB_FAIL(sql_client.write(insert_sql.ptr(), affected_rows))) {
       } else if (schema_id_array.count() != affected_rows) {
         ret = OB_ERR_UNEXPECTED;
+        LOG_WARN("insert affected_rows is not expected", K(ret), K(affected_rows), K(schema_id_array.count()));
       }
     }
     // update related users' schema version
     if (FAILEDx((update_user_schema_version(user_infos,
         ddl_stmt_str,
         sql_client)))) {
+      LOG_WARN("Failed to grant or revoke user", K(ret));
     }
   }
   return ret;
@@ -234,10 +248,11 @@ int ObUserSqlService::drop_user(
 {
   int ret = OB_SUCCESS;
   static const int64_t IS_DELETED = 1;
-  
+
 
   if (OB_INVALID_ID == user_id) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("Invalid arguments", K(user_id), K(ret));
   } else {
     int64_t affected_rows = 0;
     ObDMLExecHelper exec(sql_client);
@@ -246,29 +261,34 @@ int ObUserSqlService::drop_user(
       if (OB_FAIL(dml.add_pk_column("user_id", ObSchemaUtils::get_extract_schema_id(
                                               user_id)))
           || OB_FAIL(dml.add_gmt_modified())) {
+        LOG_WARN("add column failed", K(ret));
       }
     }
 
     // delete from __all_user table
     if (FAILEDx(exec.exec_delete(OB_ALL_USER_TNAME, dml, affected_rows))) {
+      LOG_WARN("execute sql failed", K(ret));
     } else if (!is_single_row(affected_rows)) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("affected_rows expect to 1, ", K(affected_rows), K(ret));
     }
 
     // mark delete __all_user_history
     if (OB_SUCC(ret)) {
       if (OB_FAIL(dml.add_pk_column("schema_version", new_schema_version))
           || OB_FAIL(dml.add_column("is_deleted", IS_DELETED))) {
+        LOG_WARN("add column failed", K(ret));
       } else if (OB_FAIL(exec.exec_replace(OB_ALL_USER_HISTORY_TNAME, dml, affected_rows))) {
       } else if (!is_single_row(affected_rows)) {
         ret = OB_ERR_UNEXPECTED;
+        LOG_WARN("affected_rows expect to 1, ", K(affected_rows), K(ret));
       }
     }
 
     // log operation
     if (OB_SUCC(ret)) {
       ObSchemaOperation priv_operation;
-      
+
       priv_operation.user_id_ = user_id;
       priv_operation.op_type_ = OB_DDL_DROP_USER;
       priv_operation.schema_version_ = new_schema_version;
@@ -284,8 +304,10 @@ int ObUserSqlService::drop_user(
   //    2). grantee: update related roles' schema version
   const ObUserInfo *user = NULL;
   if (FAILEDx(schema_guard.get_user_info(user_id, user))) {
+    LOG_WARN("failed to get user info", K(ret), K(user_id));
   } else if (NULL == user) {
     ret = OB_ERR_UNEXPECTED;
+    LOG_WARN("user info is null", K(ret), K(user_id));
   } else {
     OZ (drop_user_delete_role_grantee_map(true, new_schema_version,
                                           user, ddl_stmt_str, sql_client, schema_guard));
@@ -305,14 +327,15 @@ int ObUserSqlService::rename_user(
     ObISQLClient &sql_client)
 {
   int ret = OB_SUCCESS;
-  
-  
+
+
   const uint64_t user_id = user_info.get_user_id();
   const ObString &new_user_name = user_info.get_user_name_str();
   const ObString &new_host_name = user_info.get_host_name_str();
   ObSqlString sql_string;
   if (OB_INVALID_ID == user_id) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("invalid arguments", K(user_id), K(ret));
   } else {
     int64_t affected_rows = 0;
     ObDMLExecHelper exec(sql_client);
@@ -322,23 +345,27 @@ int ObUserSqlService::rename_user(
         || OB_FAIL(dml.add_column("user_name", new_user_name))
         || OB_FAIL(dml.add_column("host", new_host_name))
         || OB_FAIL(dml.add_gmt_modified())) {
+      LOG_WARN("add column failed", K(ret));
     }
 
     // udpate __all_user table
     if (FAILEDx(exec.exec_update(OB_ALL_USER_TNAME, dml, affected_rows))) {
+      LOG_WARN("execute update sql fail", K(ret));
     } else if (!is_single_row(affected_rows)) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("update should affect only 1 row", K(affected_rows), K(ret));
     }
 
     // update __all_user history table
     if (FAILEDx(add_user_history(user_info, new_schema_version, sql_client, false))) {
+      LOG_WARN("add_user_history failed", K(user_info), K(new_schema_version), K(ret));
     }
 
     // log operation
     if (OB_SUCC(ret)) {
       ObSchemaOperation priv_operation;
       priv_operation.schema_version_ = new_schema_version;
-      
+
       priv_operation.user_id_ = user_id;
       priv_operation.op_type_ = OB_DDL_RENAME_USER;
       priv_operation.ddl_stmt_str_ = ddl_stmt_str ? *ddl_stmt_str : ObString();
@@ -389,12 +416,13 @@ int ObUserSqlService::set_passwd_impl(
     const ObSchemaOperationType type)
 {
   int ret = OB_SUCCESS;
-  
-  
+
+
   const uint64_t user_id = user_info.get_user_id();
   ObSqlString sql_string;
   if (OB_INVALID_ID == user_id) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("invalid id", K(user_id), K(ret));
   } else {
     int64_t affected_rows = 0;
     ObDMLExecHelper exec(sql_client);
@@ -405,23 +433,27 @@ int ObUserSqlService::set_passwd_impl(
         || OB_FAIL(dml.add_time_column("password_last_changed",
                                       user_info.get_password_last_changed()))
         || OB_FAIL(dml.add_gmt_modified())) {
+      LOG_WARN("add column failed", K(ret));
     }
 
     // udpate __all_user table
     if (FAILEDx(exec.exec_update(OB_ALL_USER_TNAME, dml, affected_rows))) {
+      LOG_WARN("execute update sql fail", K(ret));
     } else if (!is_single_row(affected_rows)) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("update should affect only 1 row", K(affected_rows), K(ret));
     }
 
     // update __all_user history table
     if (FAILEDx(add_user_history(user_info, new_schema_version, sql_client, false))) {
+      LOG_WARN("add_user_history failed", K(user_info), K(new_schema_version), K(ret));
     }
 
     // log operation
     if (OB_SUCC(ret)) {
       ObSchemaOperation priv_operation;
       priv_operation.schema_version_ = new_schema_version;
-      
+
       priv_operation.user_id_ = user_id;
       priv_operation.op_type_ = type;
       priv_operation.ddl_stmt_str_ = ddl_stmt_str ? *ddl_stmt_str : ObString();
@@ -440,12 +472,13 @@ int ObUserSqlService::set_max_connections(
     ObISQLClient &sql_client)
 {
   int ret = OB_SUCCESS;
-  
-  
+
+
   const uint64_t user_id = user_info.get_user_id();
   ObSqlString sql_string;
   if (OB_INVALID_ID == user_id) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("invalid id", K(user_id), K(ret));
   } else {
     int64_t affected_rows = 0;
     ObDMLExecHelper exec(sql_client);
@@ -455,23 +488,27 @@ int ObUserSqlService::set_max_connections(
         || OB_FAIL(dml.add_column("max_connections", user_info.get_max_connections()))
         || OB_FAIL(dml.add_column("max_user_connections", user_info.get_max_user_connections()))
         || OB_FAIL(dml.add_gmt_modified())) {
+      LOG_WARN("add column failed", K(ret));
     }
 
     // udpate __all_user table
     if (FAILEDx(exec.exec_update(OB_ALL_USER_TNAME, dml, affected_rows))) {
+      LOG_WARN("execute update sql fail", K(ret));
     } else if (!is_single_row(affected_rows)) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("update should affect only 1 row", K(affected_rows), K(ret));
     }
 
     // update __all_user history table
     if (FAILEDx(add_user_history(user_info, new_schema_version, sql_client, false))) {
+      LOG_WARN("add_user_history failed", K(user_info), K(new_schema_version), K(ret));
     }
 
     // log operation
     if (OB_SUCC(ret)) {
       ObSchemaOperation priv_operation;
       priv_operation.schema_version_ = new_schema_version;
-      
+
       priv_operation.user_id_ = user_id;
       priv_operation.op_type_ = OB_DDL_ALTER_USER;
       priv_operation.ddl_stmt_str_ = ddl_stmt_str ? *ddl_stmt_str : ObString();
@@ -490,12 +527,13 @@ int ObUserSqlService::alter_user_require(
     ObISQLClient &sql_client)
 {
   int ret = OB_SUCCESS;
-  
-  
+
+
   const uint64_t user_id = user_info.get_user_id();
   ObSqlString sql_string;
   if (OB_INVALID_ID == user_id) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("invalid id", K(user_id), K(ret));
   } else {
     int64_t affected_rows = 0;
     ObDMLExecHelper exec(sql_client);
@@ -507,23 +545,27 @@ int ObUserSqlService::alter_user_require(
         || OB_FAIL(dml.add_column("x509_issuer", user_info.get_x509_issuer()))
         || OB_FAIL(dml.add_column("x509_subject", user_info.get_x509_subject()))
         || OB_FAIL(dml.add_gmt_modified())) {
+      LOG_WARN("add column failed", K(ret));
     }
 
     // udpate __all_user table
     if (FAILEDx(exec.exec_update(OB_ALL_USER_TNAME, dml, affected_rows))) {
+      LOG_WARN("execute update sql fail", K(ret));
     } else if (!is_single_row(affected_rows)) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("update should affect only 1 row", K(affected_rows), K(ret));
     }
 
     // update __all_user history table
     if (FAILEDx(add_user_history(user_info, new_schema_version, sql_client, false))) {
+      LOG_WARN("add_user_history failed", K(user_info), K(new_schema_version), K(ret));
     }
 
     // log operation
     if (OB_SUCC(ret)) {
       ObSchemaOperation priv_operation;
       priv_operation.schema_version_ = new_schema_version;
-      
+
       priv_operation.user_id_ = user_id;
       priv_operation.op_type_ = OB_DDL_ALTER_USER_REQUIRE;
       priv_operation.ddl_stmt_str_ = ddl_stmt_str ? *ddl_stmt_str : ObString();
@@ -543,12 +585,13 @@ int ObUserSqlService::grant_revoke_user(
     const bool is_from_inner_sql)
 {
   int ret = OB_SUCCESS;
-  
-  
+
+
   const uint64_t user_id = user_info.get_user_id();
   ObSqlString sql_string;
   if (OB_INVALID_ID == user_id) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("Invalid arguments", K(user_id), K(ret));
   } else {
     int64_t affected_rows = 0;
     ObDMLExecHelper exec(sql_client);
@@ -558,19 +601,24 @@ int ObUserSqlService::grant_revoke_user(
 
     // insert into __all_user
     if (FAILEDx(exec.exec_update(OB_ALL_USER_TNAME, dml, affected_rows))) {
+      LOG_WARN("execute insert failed", K(ret));
+    // An idempotent role grant may only refresh gmt_modified. Within the same time tick,
+    // the row remains unchanged and MySQL reports zero affected rows.
     } else if (!is_zero_row(affected_rows) && !is_single_row(affected_rows)) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("affected_rows unexpected", K(affected_rows), K(ret));
     }
 
     // insert into __all_user_history
     if (FAILEDx(add_user_history(user_info, new_schema_version, sql_client, is_from_inner_sql))) {
+      LOG_WARN("add_user_history failed", K(user_info), K(new_schema_version), K(ret));
     }
 
     // log operation
     if (OB_SUCC(ret)) {
       ObSchemaOperation priv_operation;
       priv_operation.schema_version_ = new_schema_version;
-      
+
       priv_operation.user_id_ = user_id;
       priv_operation.op_type_ = OB_DDL_GRANT_REVOKE_USER;
       priv_operation.ddl_stmt_str_ = ddl_stmt_str ? *ddl_stmt_str : ObString();
@@ -589,13 +637,14 @@ int ObUserSqlService::lock_user(
     ObISQLClient &sql_client)
 {
   int ret = OB_SUCCESS;
-  
-  
+
+
   const uint64_t user_id = user_info.get_user_id();
   const bool locked = user_info.get_is_locked();
 
   if (OB_INVALID_ID == user_id) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("Invalid arguments", K(user_id), K(ret));
   } else {
     int64_t affected_rows = 0;
     ObDMLExecHelper exec(sql_client);
@@ -604,23 +653,27 @@ int ObUserSqlService::lock_user(
                                             user_id)))
         || OB_FAIL(dml.add_column("is_locked", locked))
         || OB_FAIL(dml.add_gmt_modified())) {
+      LOG_WARN("add column failed", K(ret));
     }
 
     // udpate __all_user table
     if (FAILEDx(exec.exec_update(OB_ALL_USER_TNAME, dml, affected_rows))) {
+      LOG_WARN("execute update sql fail", K(ret));
     } else if (!is_single_row(affected_rows)) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("update should affect only 1 row", K(affected_rows), K(ret));
     }
 
     // update __all_user history table
     if (FAILEDx(add_user_history(user_info, new_schema_version, sql_client, false))) {
+      LOG_WARN("add_user_history failed", K(user_info), K(new_schema_version), K(ret));
     }
 
     // log operation
     if (OB_SUCC(ret)) {
       ObSchemaOperation priv_operation;
       priv_operation.schema_version_ = new_schema_version;
-      
+
       priv_operation.user_id_ = user_id;
       priv_operation.op_type_ = OB_DDL_LOCK_USER;
       priv_operation.ddl_stmt_str_ = ddl_stmt_str ? *ddl_stmt_str : ObString();
@@ -639,8 +692,8 @@ int ObUserSqlService::add_user_history(
     const bool is_from_inner_sql)
 {
   int ret = OB_SUCCESS;
-  
-  
+
+
   ObDMLExecHelper exec(sql_client);
   ObDMLSqlSplicer dml;
   int64_t affected_rows = 0;
@@ -649,9 +702,11 @@ int ObUserSqlService::add_user_history(
     const int64_t is_deleted = 0;
     if (OB_FAIL(dml.add_pk_column("schema_version", schema_version))
         || OB_FAIL(dml.add_column("is_deleted", is_deleted))) {
+      LOG_WARN("add column failed", K(ret));
     } else if (OB_FAIL(exec.exec_replace(OB_ALL_USER_HISTORY_TNAME, dml, affected_rows))) {
     } else if (!is_single_row(affected_rows)) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("update should affect only 1 row", K(affected_rows), K(ret));
     }
   }
   return ret;
@@ -700,6 +755,7 @@ int ObUserSqlService::gen_user_dml(
       || OB_FAIL(dml.add_column("TYPE", user.is_role() ? 1 : 0))
       || OB_FAIL(dml.add_time_column("password_last_changed", user.get_password_last_changed()))
       || OB_FAIL(dml.add_gmt_modified())) {
+    LOG_WARN("add column failed", K(ret));
   }
   int64_t priv_others = 0;
   if (OB_SUCC(ret)) {
@@ -734,6 +790,7 @@ int ObUserSqlService::update_user_schema_version(
   UNUSED(ddl_stmt_str);
   if (user_infos.count() < 1) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("Invalid arguments", K(ret));
   } else {
     // update __all_user history table
     for (int64_t i = 0; OB_SUCC(ret) && i < user_infos.count(); i++) {
@@ -746,7 +803,7 @@ int ObUserSqlService::update_user_schema_version(
       if (OB_SUCC(ret)) {
         ObSchemaOperation priv_operation;
         priv_operation.schema_version_ = new_schema_version;
-        
+
         priv_operation.user_id_ = user_info.get_user_id();
         priv_operation.op_type_ = OB_DDL_MODIFY_USER_SCHEMA_VERSION;
         //priv_operation.ddl_stmt_str_ = ddl_stmt_str ? *ddl_stmt_str : ObString();

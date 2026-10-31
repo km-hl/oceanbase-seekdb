@@ -91,8 +91,10 @@ int ObIStreamBuf::init()
   int ret = OB_SUCCESS;
   if (is_valid()) {
     ret = OB_INIT_TWICE;
+    LOG_WARN("init istreambuf twice", K(ret));
   } else if (OB_FAIL(do_callback())) {
     last_error_code_ = ret;
+    LOG_WARN("failed to do callback", K(ret));
   }
   return ret;
 }
@@ -187,16 +189,20 @@ int ObVectorIndexSerializer::serialize(void *index, ObOStreamBuf::CbParam &cb_pa
   char *data = nullptr;
   if (OB_ISNULL(index) || 0 > capacity) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("invalid argument", K(ret), K(index), K(capacity));
   } else if (OB_ISNULL(data = static_cast<char*>(allocator_.alloc(capacity * sizeof(char))))) {
     ret = OB_ALLOCATE_MEMORY_FAILED;
+    LOG_WARN("failed to alloc serialize buffer", K(ret), K(capacity));
   } else {
     ObOStreamBuf streambuf(data, capacity, cb_param, cb);
     std::ostream out(&streambuf);
     lib::ObMallocHookAttrGuard malloc_guard(lib::ObMemAttr("VIndexVsagADP"));
     lib::ObLightBacktraceGuard light_backtrace_guard(false);
     if (OB_FAIL(obvectorutil::fserialize(index, out))) {
+      LOG_WARN("fail to do vsag serialize", K(ret));
       if (streambuf.get_error_code() != OB_SUCCESS && streambuf.get_error_code() != OB_ITER_END) {
         ret = streambuf.get_error_code();
+        LOG_WARN("serialize streambuf has fail", K(ret));
       }
     } else {
       streambuf.check_finish(); // do last callback to ensure all the data is written
@@ -218,13 +224,16 @@ int ObVectorIndexSerializer::deserialize(void *&index, ObIStreamBuf::CbParam &cb
       LOG_INFO("[vec index deserialize] read table is empty, just return");
       ret = OB_SUCCESS;
     } else {
+      LOG_WARN("failed to init istreambuf", K(ret));
     }
   } else {
     lib::ObMallocHookAttrGuard malloc_guard(lib::ObMemAttr("VIndexVsagADP"));
     lib::ObLightBacktraceGuard light_backtrace_guard(false);
     if (OB_FAIL(obvectorutil::fdeserialize(index, in))) {
+      LOG_WARN("fail to do vsag deserialize", K(ret));
       if (streambuf.get_error_code() != OB_SUCCESS && streambuf.get_error_code() != OB_ITER_END) {
         ret = streambuf.get_error_code();
+        LOG_WARN("deserialize streambuf has fail", K(ret));
       }
     }
   }
@@ -234,49 +243,7 @@ int ObVectorIndexSerializer::deserialize(void *&index, ObIStreamBuf::CbParam &cb
       LOG_INFO("[vec index deserialize] read table finish, just return");
       ret = OB_SUCCESS;
     } else {
-    }
-  }
-  return ret;
-}
-
-int ObVectorIndexSerializer::serialize_cuvs(void *index, ObOStreamBuf::CbParam &cb_param, ObOStreamBuf::Callback &cb, const int64_t capacity)
-{
-  int ret = OB_SUCCESS;
-  char *data = nullptr;
-  if (OB_ISNULL(index) || 0 > capacity) {
-    ret = OB_INVALID_ARGUMENT;
-  } else if (OB_ISNULL(data = static_cast<char*>(allocator_.alloc(capacity * sizeof(char))))) {
-    ret = OB_ALLOCATE_MEMORY_FAILED;
-  } else {
-    ObOStreamBuf streambuf(data, capacity, cb_param, cb);
-    std::ostream out(&streambuf);
-    if (OB_FAIL(obvectorutil::cuvs_serialize(index, out))) {
-      if (streambuf.get_error_code() != OB_SUCCESS && streambuf.get_error_code() != OB_ITER_END) {
-        ret = streambuf.get_error_code();
-      }
-    } else {
-      streambuf.check_finish(); // flush the tail so every byte reaches a row
-      if (OB_FAIL(streambuf.get_error_code())) {
-      }
-    }
-  }
-  return ret;
-}
-
-int ObVectorIndexSerializer::deserialize_cuvs(void *&index, ObIStreamBuf::CbParam &cb_param, ObIStreamBuf::Callback &cb)
-{
-  int ret = OB_SUCCESS;
-  ObIStreamBuf streambuf(nullptr, 0, cb_param, cb);
-  std::istream in(&streambuf);
-  if (OB_FAIL(streambuf.init())) {
-    if (ret == OB_ITER_END) {
-      LOG_INFO("[vec index deserialize] cuvs snapshot table is empty, just return");
-      ret = OB_SUCCESS;
-    }
-  } else if (OB_FAIL(obvectorutil::cuvs_deserialize(index, in))) {
-    const int stream_ret = streambuf.get_error_code();
-    if (stream_ret != OB_SUCCESS && stream_ret != OB_ITER_END) {
-      LOG_WARN("[vec index deserialize] cuvs snapshot read failed", K(ret), K(stream_ret));
+      LOG_WARN("failed to deserialize", K(ret));
     }
   }
   return ret;
@@ -297,6 +264,7 @@ int ObHNSWDeserializeCallback::operator()(char*& data, const int64_t data_size, 
   ObString src_block_data;
   if (!param.is_valid()) {
     ret = OB_ERR_UNEXPECTED;
+    LOG_WARN("invalid row_iter", K(ret), K(row_iter));
   } else {
     data = nullptr;
     read_size = 0;
@@ -316,13 +284,14 @@ int ObHNSWDeserializeCallback::operator()(char*& data, const int64_t data_size, 
           str_iter = nullptr;
           allocator->reuse();
         } else {
-          ret = (str_iter->get_inner_ret() != OB_SUCCESS) ? 
+          ret = (str_iter->get_inner_ret() != OB_SUCCESS) ?
                 str_iter->get_inner_ret() : OB_INVALID_DATA;
+          LOG_WARN("iter state invalid", K(ret), K(state), KPC(str_iter));
           // return error, release current str iter
           str_iter->~ObTextStringIter();
           allocator->free(str_iter);
           str_iter = nullptr;
-          allocator->reuse();      
+          allocator->reuse();
         }
       }
       if (OB_SUCC(ret) && OB_ISNULL(str_iter)) {
@@ -330,12 +299,14 @@ int ObHNSWDeserializeCallback::operator()(char*& data, const int64_t data_size, 
         if (OB_FAIL(row_iter->get_next_row(row))) {
         } else if (OB_ISNULL(row) || row->get_column_count() < 2) {
           ret = OB_ERR_UNEXPECTED;
+          LOG_WARN("invalid row", K(ret), K(row));
         } else {
           key_datum = row->storage_datums_[0];
           data_datum = row->storage_datums_[1];
           LOG_INFO("[vec index debug] show key and data for vsag deserialize", K(key_datum), K(data_datum));
           if (OB_ISNULL(str_iter = OB_NEWx(ObTextStringIter, allocator, ObLongTextType, CS_TYPE_BINARY, data_datum.get_string(), true))) {
             ret = OB_ALLOCATE_MEMORY_FAILED;
+            LOG_WARN("fail to new ObTextStringIter", KR(ret));
           } else if (OB_FAIL(str_iter->init(0, param.lob_read_options_, allocator))) {
           } else if (index_type_ == VIAT_MAX) {
             ObPluginVectorIndexAdaptor *adp = static_cast<ObPluginVectorIndexAdaptor*>(adp_);
@@ -350,6 +321,7 @@ int ObHNSWDeserializeCallback::operator()(char*& data, const int64_t data_size, 
                                        "hgraph", 6, 1);
             if (OB_ISNULL(adp)) {
               ret = OB_ERR_UNEXPECTED;
+              LOG_WARN("get invalid adp", K(ret));
             } else if (idx_ipivf > 0) {
               index_type_ = VIAT_IPIVF;
               if (OB_FAIL(adp->try_init_snap_data(VIAT_IPIVF))) {
@@ -382,6 +354,7 @@ int ObHNSWDeserializeCallback::operator()(char*& data, const int64_t data_size, 
       ObPluginVectorIndexAdaptor *adp_ptr = static_cast<ObPluginVectorIndexAdaptor*>(adp_);
       if (OB_ISNULL(adp_ptr)) {
         ret = OB_ERR_UNEXPECTED;
+        LOG_WARN("get invalid adp", K(ret));
       } else if (!adp_ptr->is_mem_data_init_atomic(VIRT_SNAP)) {
         if (OB_FAIL(adp_ptr->init_snap_data_without_lock(VIAT_HNSW))) {
         } else {
@@ -425,6 +398,7 @@ int ObHNSWSerializeCallback::operator()(const char *data, const int64_t data_siz
   if (OB_FAIL(ret)) {
   } else if (OB_ISNULL(lob_mngr)) {
     ret = OB_ERR_UNEXPECTED;
+    LOG_WARN("get lob manager nullptr", K(ret));
   } else if (OB_FAIL(lob_mngr->append(lob_param, src_lob))) {
   } else {
     LOG_INFO("[vec index debug] success write one data into lob tablet", K(src_lob),

@@ -257,6 +257,7 @@ int ObTabletCreateSSTableParam::init_for_empty_major_sstable(const ObTabletID &t
   if (OB_UNLIKELY(!storage_schema.is_valid() || !tablet_id.is_valid() 
       || OB_INVALID_VERSION == snapshot_version)) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("invalid args", K(ret), K(storage_schema), K(snapshot_version));
   } else {
     const int64_t multi_version_col_cnt = ObMultiVersionRowkeyHelpper::get_extra_rowkey_col_cnt();
     table_key_.table_type_ = ObITable::TableType::MAJOR_SSTABLE;
@@ -395,6 +396,8 @@ int ObTabletCreateSSTableParam::init_for_small_sstable(
   }
   if (OB_SUCC(ret) && !is_valid()) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("init for small sstable get invalid argument", K(ret), K(res), K(table_key),
+        KPC(this), K(sstable_meta), K(block_info));
   }
   return ret;
 }
@@ -446,6 +449,8 @@ int ObTabletCreateSSTableParam::init_for_merge(const compaction::ObBasicTabletMe
 
   if (OB_SUCC(ret) && !is_valid()) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("init for merge sstable get invalid argument", K(ret), K(table_key), KPC(this),
+        K(res), K(ctx));
   }
   return ret;
 }
@@ -490,6 +495,8 @@ int ObTabletCreateSSTableParam::init_for_ddl(blocksstable::ObSSTableIndexBuilder
                             res.row_count_ > 0 &&
                             res.max_merged_trans_version_ != ddl_param.snapshot_version_)) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("max_merged_trans_version_ in res is different from ddl snapshot version", K(ret),
+                K(res), K(ddl_param));
     } else {
       table_key_ = ddl_param.table_key_;
       table_mode_ = table_mode;
@@ -513,6 +520,7 @@ int ObTabletCreateSSTableParam::init_for_ddl(blocksstable::ObSSTableIndexBuilder
       if (OB_SUCC(ret)) {
         if (macro_id_array.count() > 0) {
           ret = OB_ERR_UNEXPECTED;
+          LOG_WARN("other_block_ids should be empty in share nothing mode", K(ret), K(macro_id_array.count()));
         }
       }
       if (OB_FAIL(ret)) {
@@ -526,6 +534,8 @@ int ObTabletCreateSSTableParam::init_for_ddl(blocksstable::ObSSTableIndexBuilder
       if (OB_SUCC(ret)) {
         if (!is_valid()) {
           ret = OB_INVALID_ARGUMENT;
+          LOG_WARN("init for ddl sstable get invalid argument", K(ret), K(ddl_param), KPC(this),
+              K(res));
         }
       }
     }
@@ -658,7 +668,7 @@ int ObTabletCreateSSTableParam::init_for_fork(
     const share::SCN &max_end_scn)
 {
   int ret = OB_SUCCESS;
-  
+
   table_key_ = src_table_key;
   table_key_.tablet_id_ = dst_tablet_id;
   // For fork reuse: limit end_scn to max_end_scn (e.g., fork_snapshot_scn)
@@ -670,7 +680,7 @@ int ObTabletCreateSSTableParam::init_for_fork(
         K(src_table_key));
     table_key_.scn_range_.end_scn_ = max_end_scn;
   }
-  
+
   sstable_logic_seq_ = sstable_param.basic_meta_.sstable_logic_seq_;
   schema_version_ = sstable_param.basic_meta_.schema_version_;
   create_snapshot_version_ = sstable_param.basic_meta_.create_snapshot_version_;
@@ -701,28 +711,29 @@ int ObTabletCreateSSTableParam::init_for_fork(
   is_meta_root_ = sstable_param.is_meta_root_;
   root_block_addr_.set_none_addr();
   data_block_macro_meta_addr_.set_none_addr();
-  
+
   data_index_tree_height_ = sstable_param.basic_meta_.data_index_tree_height_;
   recycle_version_ = sstable_param.basic_meta_.recycle_version_;
-  
+
   const blocksstable::ObSSTableMacroInfo &macro_info = sstable_meta.get_macro_info();
   nested_offset_ = macro_info.get_nested_offset();
   nested_size_ = macro_info.get_nested_size();
 
   ObSEArray<blocksstable::MacroBlockId, 64> data_block_ids;
   ObSEArray<blocksstable::MacroBlockId, 64> other_block_ids;
-  
+
   if (OB_FAIL(column_checksums_.assign(sstable_param.column_checksums_))) {
   } else if (OB_FAIL(collect_macro_block_ids_from_meta(macro_info, data_block_ids, other_block_ids))) {
   }
-  
+
   if (OB_FAIL(ret)) {
   } else if (OB_FAIL(blocksstable::ObSSTableMetaCompactUtil::fix_filled_tx_scn_value_for_compact(table_key_, filled_tx_scn_))) {
   } else if (OB_FAIL(inner_init_with_embedded_meta(sstable_param, data_block_ids, other_block_ids))) {
   } else if (!is_valid()) {
     ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("init for fork sstable get invalid argument", K(ret), K(sstable_param), KPC(this));
   }
-  
+
   return ret;
 }
 
@@ -734,7 +745,7 @@ int ObTabletCreateSSTableParam::collect_macro_block_ids_from_meta(
   int ret = OB_SUCCESS;
   blocksstable::ObMacroIdIterator data_iter;
   blocksstable::ObMacroIdIterator other_iter;
-  
+
   if (OB_FAIL(macro_info.get_data_block_iter(data_iter))) {
   } else if (OB_FAIL(macro_info.get_other_block_iter(other_iter))) {
   } else {
@@ -746,11 +757,12 @@ int ObTabletCreateSSTableParam::collect_macro_block_ids_from_meta(
           ret = OB_SUCCESS;
           break;
         } else {
+          LOG_WARN("failed to get next data macro id", K(ret));
         }
       } else if (OB_FAIL(data_block_ids.push_back(macro_id))) {
       }
     }
-    
+
     // Collect other block IDs
     if (OB_SUCC(ret)) {
       while (OB_SUCC(ret)) {
@@ -759,13 +771,14 @@ int ObTabletCreateSSTableParam::collect_macro_block_ids_from_meta(
             ret = OB_SUCCESS;
             break;
           } else {
+            LOG_WARN("failed to get next other macro id", K(ret));
           }
         } else if (OB_FAIL(other_block_ids.push_back(macro_id))) {
         }
       }
     }
   }
-  
+
   return ret;
 }
 
@@ -818,6 +831,7 @@ int ObTabletCreateSSTableParam::init_for_mds(
   if (OB_SUCC(ret)) {
     if (!is_valid()) {
       ret = OB_INVALID_ARGUMENT;
+      LOG_WARN("init for mds sstable get invalid argument", K(ret), K(res), K(ctx), KPC(this));
     }
   }
   return ret;

@@ -17,4 +17,3 @@ stack-size
 p "EVIL: bt-full"
 bt full
 set logging off
-

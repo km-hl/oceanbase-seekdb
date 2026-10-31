@@ -120,7 +120,3 @@ drop user if exists 'test_user2'@'%';
 
 disconnect conn_user1;
 disconnect conn_user2;
-
-
-
-

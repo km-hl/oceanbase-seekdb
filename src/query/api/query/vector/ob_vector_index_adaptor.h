@@ -268,7 +268,6 @@ public:
       incr_iter_ctx_(nullptr),
       snap_iter_ctx_(nullptr),
       bitmaps_(nullptr),
-      bitmap_view_ready_(false),
       pre_filter_(nullptr),
       vec_data_(),
       allocator_(allocator),
@@ -322,12 +321,11 @@ public:
 private:
   PluginVectorQueryResStatus status_;
   ObVectorQueryProcessFlag flag_;
-  
+
   int64_t extra_column_count_;
   void *incr_iter_ctx_;
   void *snap_iter_ctx_;
   ObVectorIndexRoaringBitMap *bitmaps_;
-  bool bitmap_view_ready_; // Query-local index-id view; do not merge newer shared state.
   ObHnswBitmapFilter *pre_filter_;  // pre filter only
   ObVectorParamData vec_data_;
   ObIAllocator *allocator_;       // allocator for vec_lookup_op, used to allocate memory for final query result
@@ -571,7 +569,7 @@ public:
   int init(lib::MemoryContext &parent_mem_ctx, uint64_t *all_vsag_use_mem);
   int set_param(ObString init_str, int64_t dim);
   int get_index_type() { return type_; };
-  
+
   // -- start for debugging
   void init_incr_tablet() {inc_tablet_id_ = ObTabletID(common::ObTabletID::MIN_VALID_TABLET_ID); }
   // -- end for debugging use
@@ -721,8 +719,7 @@ public:
   int complete_index_mem_data(SCN read_scn,
                               common::ObNewRowIterator *row_iter,
                               blocksstable::ObDatumRow *last_row,
-                              ObArray<uint64_t> &i_vids,
-                              ObVectorQueryAdaptorResultContext *ctx);
+                              ObArray<uint64_t> &i_vids);
   int complete_index_mem_data_incremental(ObVectorQueryAdaptorResultContext *ctx,
                                          SCN query_scn,
                                          ObArray<uint64_t> &i_vids);
@@ -912,7 +909,7 @@ private:
   ObVectorIndexMemData *snap_data_;
   ObVectorIndexMemData *vbitmap_data_;
 
-  
+
 
   ObTabletID snapshot_tablet_id_;
   ObTabletID inc_tablet_id_;

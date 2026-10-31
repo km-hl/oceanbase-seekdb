@@ -52,4 +52,3 @@ private :
 }
 #endif /* OCEANBASE_SRC_SQL_ENGINE_EXPR_OB_EXPR_SPIV_DIM_H_ */ 
 
- 

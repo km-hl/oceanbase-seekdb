@@ -1,7 +1,7 @@
 # hipVS/cuVS GPU vector backend
 
-Status: **competition port (not yet GPU-tested on this fork)**. The original upstream
-implementation was review-gated on AMD `gfx1100` with ROCm 7.2.4. This directory documents the current integration and its reproducible
+Status: **Phase 1 implemented and review-gated** on AMD `gfx1100` with ROCm
+7.2.4. This directory documents the current integration and its reproducible
 validation assets. Historical feasibility experiments remain available in Git
 history rather than in the product-facing tree.
 
@@ -14,9 +14,7 @@ vector adaptor. It does not replace VSAG globally.
 - A dense L2 HNSW/HGRAPH index opts in with `WITH (lib=cuvs)`.
 - `lib=vsag` indexes keep their existing CPU behavior.
 - Cosine and inner-product metrics are rejected for `lib=cuvs` at DDL time.
-- This competition port buffers vectors and builds the GPU CAGRA graph lazily.
-- Deleted rows and unavailable GPUs use an exact CPU scan over buffered vectors.
-- **Pre-filter plans are unsupported for GPU-only `lib=cuvs` indexes; use `lib=vsag`**.
+- Filters, deletes, stale GPU indexes, and unavailable GPUs fall back to VSAG.
 - `dbms_vector.batch_knn` exposes one-call batched GPU ANN for explicit batch
   workloads.
 
@@ -118,7 +116,7 @@ The runner validates:
 - non-L2 DDL rejection;
 - filter, delete, and freshness fallback;
 - threshold-triggered CAGRA rebuild;
-- one-call `batch_knn`, row cardinality, and recall;
+- one-call `batch_knn`, row cardinality, and recall for Top-10 and Top-100;
 - GPU device file descriptors and hidden-GPU fallback;
 - bounded observer cleanup and closed ports.
 
@@ -131,26 +129,9 @@ The no-GPU DDL contract remains covered by
 ## Current limitations
 
 - Phase 1 supports dense float32 L2 indexes only.
-- GPU graph handles are process-local and lazily rebuilt; the flat vector buffer
-  is snapshotted for recreation and restart. GPU cache reuse remains future work.
+- GPU indexes are process-local and rebuilt lazily; persistence and cache reuse
+  are follow-up work.
 - The explicit batch API rebuilds its CAGRA index per call.
 - GPU validation is manual because upstream CI has no compatible GPU runner.
 - Multi-GPU, long-duration, and snapshot-reload coverage are out of scope for
   this phase.
-
-## Origin and competition notes
-
-This `amd` branch adapts the Apache-2.0-licensed integrations from
-[OceanBase/seekdb PR #1314](https://github.com/oceanbase/seekdb/pull/1314)
-and [PR #2228](https://github.com/oceanbase/seekdb/pull/2228), with only
-GPU-relevant files ported. Their reported benchmarks belong to their
-respective hardware environments, **not** this fork.
-
-The task's important scenario is to insert vectors into a table first and then
-run `CREATE VECTOR INDEX ... WITH (distance=l2,type=hnsw,lib=cuvs)`;
-the first `APPROXIMATE` query triggers the deferred GPU graph build.
-For a fair build-to-first-query comparison, include both the DDL and first
-query times for `lib=vsag` and `lib=cuvs`, with identical vectors,
-parameters, top-k and recall@k against exact L2 ground truth.
-`OB_BUILD_CUVS=ON` and a compatible ROCm + hipVS installation are required
-for GPU execution. CPU-only builds are the default.

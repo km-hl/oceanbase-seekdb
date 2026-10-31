@@ -75,5 +75,3 @@ private:
 } // oceanbase
 
 #endif /* OB_FORK_TABLE_INFO_BUILDER_H */
-
-
