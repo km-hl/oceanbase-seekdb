@@ -53,4 +53,32 @@ select id from t_match_filter where match(body) against('database performance') 
 ) tmp;
 limit_filter
 3
+
+select count(*) as match_limit_1 from (
+select id from t_match_filter where match(body) against('database performance') limit 1
+) d;
+match_limit_1
+1
+select count(*) as match_limit_2 from (
+select id from t_match_filter where match(body) against('database performance') limit 2
+) d;
+match_limit_2
+2
+select count(*) as match_limit_excess from (
+select id from t_match_filter where match(body) against('database performance') limit 99
+) d;
+match_limit_excess
+3
+select count(*) as match_limit_offset from (
+select id from t_match_filter where match(body) against('database performance') limit 1 offset 1
+) d;
+match_limit_offset
+1
+select count(*) as match_limit_filter from (
+select id from t_match_filter
+where match(body) against('database performance') and id > 1 limit 1
+) d;
+match_limit_filter
+1
+
 drop database fts_filter_score;
