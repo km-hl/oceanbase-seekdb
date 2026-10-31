@@ -955,6 +955,19 @@ int ObTableScanOp::init_attach_scan_rtdef(const ObDASBaseCtDef *attach_ctdef,
     attach_rtdef->ctdef_ = attach_ctdef;
     attach_rtdef->children_cnt_ = attach_ctdef->children_cnt_;
     attach_rtdef->eval_ctx_ = &eval_ctx_;
+    if (DAS_OP_IR_SCAN == attach_ctdef->op_type_
+        && MY_CTDEF.attach_spec_.attach_ctdef_ == attach_ctdef
+        && OB_NOT_NULL(MY_SPEC.limit_) && OB_ISNULL(MY_SPEC.offset_)
+        && limit_param_.is_valid() && limit_param_.limit_ > 0
+        && limit_param_.offset_ == 0
+        && MY_SPEC.filters_.empty()
+        && MY_CTDEF.scan_ctdef_.pd_expr_spec_.pushdown_filters_.empty()
+        && !MY_SPEC.is_index_back() && OB_ISNULL(MY_CTDEF.lookup_ctdef_)) {
+      // Only a simple, unfiltered IR result stream may stop after LIMIT
+      // qualifying rows. Never write this into the inverted index's DAS
+      // scan limit: doing so would truncate each token's posting list.
+      static_cast<ObDASIRScanRtDef *>(attach_rtdef)->retrieval_limit_param_ = limit_param_;
+    }
     if (attach_ctdef->children_cnt_ > 0) {
       if (OB_ISNULL(attach_rtdef->children_ = OB_NEW_ARRAY(ObDASBaseRtDef*,
                                                            &ctx_.get_allocator(),
