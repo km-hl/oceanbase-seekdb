@@ -1,0 +1,41 @@
+name: AMD V5 official baseline import
+on:
+  push:
+    branches:
+      - amd
+    paths:
+      - .github/workflows/amd-v5-bootstrap.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import-v5:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout current amd branch
+        uses: actions/checkout@v4
+        with:
+          ref: amd
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Import official frozen V5 ancestry and tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add contest-v5 https://github.com/zihaomu/seekdb.git
+          git fetch --no-tags contest-v5 refs/heads/amd-oceanbase-official-contest-base-v5
+          frozen=634888d9b037153fa143d2c913ba4b25503e1d62
+          source=$(git rev-parse FETCH_HEAD)
+          test "$source" = "$frozen"
+          old=$(git rev-parse HEAD)
+          tree=$(git rev-parse "$frozen^{tree}")
+          new=$(printf "%s\n" "chore(amd): switch to official V5 CAGRA competition baseline" "Keep prior amd work as first-parent history; add frozen V5 as second parent." | git commit-tree "$tree" -p "$old" -p "$frozen")
+          git merge-base --is-ancestor "$frozen" "$new"
+          test "$(git rev-parse "$new^{tree}")" = "$tree"
+          echo "Old AMD commit: $old"
+          echo "Official V5 commit: $frozen"
+          echo "New merge commit: $new"
+          git push origin "$new:refs/heads/amd"
