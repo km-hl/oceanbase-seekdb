@@ -134,11 +134,10 @@ int ObIKFTParser::process_one_char(TokenizeContext &ctx,
                                    const ObFTCharUtil::CharType type)
 {
   int ret = OB_SUCCESS;
-  // proces by char with all segmenters
-  for (ObList<ObIIKProcessor *, ObIAllocator>::iterator iter = segmenters_.begin();
-       OB_SUCC(ret) && iter != segmenters_.end();
-       iter++) {
-    if (OB_FAIL((*iter)->process(ctx))) {
+  // The order is significant: quantifier before CJK. ObSEArray keeps the
+  // insertion order while avoiding a linked-list traversal per character.
+  for (int64_t i = 0; OB_SUCC(ret) && i < segmenters_.count(); ++i) {
+    if (OB_FAIL(segmenters_.at(i)->process(ctx))) {
     }
   }
   return ret;
@@ -360,7 +359,7 @@ void ObIKFTParser::reset()
       allocator_.free(segmenter);
     }
   }
-  segmenters_.clear();
+  segmenters_.reset();
 
   cache_main_.reset();
   cache_quan_.reset();
