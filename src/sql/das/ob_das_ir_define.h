@@ -255,6 +255,9 @@ public:
   // fts_idx_ is dynamically generated during execution based on the rtdef tree and does not need to be serialized.
   int64_t fts_idx_;
   int64_t minimum_should_match_;
+  // Runtime-only upper bound on *matched documents*, not on per-token postings.
+  // The normal inverted-index scan limit remains untouched.
+  common::ObLimitParam retrieval_limit_param_;
 };
 
 struct ObDASIRAuxLookupCtDef : ObDASAttachCtDef
