@@ -96,11 +96,8 @@ else()
       libantlr4-runtime.a
       libantlr4-autogen.a
       libfmt.a)
-    # [hipVS/cuVS] optional GPU vector-index backend bridge
-    # enable: -DOB_BUILD_CUVS=ON -DCUVS_BRIDGE_LIB=/path/to/libseekdb_cuvs_bridge.so
-    if (OB_BUILD_CUVS AND EXISTS "${CUVS_BRIDGE_LIB}")
-      target_link_libraries(oblib_lib PUBLIC ${CUVS_BRIDGE_LIB})
-    endif()
+    # Optional hipVS bridge is linked below, after architecture selection.
+    # GPU support must also define OB_BUILD_CUVS for the C++ adaptor.
   elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     target_link_libraries(oblib_lib PUBLIC
       libcpuinfo.a
@@ -150,4 +147,29 @@ else()
   else()
     message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}")
   endif()
+endif()
+
+
+# [hipVS/cuVS] Building with -DOB_BUILD_CUVS=ON MUST compile the
+# matching C++ implementation. Previously only the bridge was linked, so the
+# preprocessor used the inert #else stubs and GPU acceleration never ran.
+if(OB_BUILD_CUVS)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+     NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+    message(FATAL_ERROR "hipVS/cuVS GPU backend currently requires Linux x86_64")
+  endif()
+  if(NOT CUVS_BRIDGE_LIB OR NOT EXISTS "${CUVS_BRIDGE_LIB}")
+    message(FATAL_ERROR
+      "OB_BUILD_CUVS=ON requires -DCUVS_BRIDGE_LIB=/absolute/path/to/libseekdb_cuvs_bridge.so; build it with tools/hipvs_bridge/build.sh")
+  endif()
+  get_filename_component(SEEKDB_CUVS_BRIDGE_ABS "${CUVS_BRIDGE_LIB}" ABSOLUTE)
+  target_compile_definitions(oblib_lib PRIVATE OB_BUILD_CUVS=1)
+  target_link_libraries(oblib_lib PUBLIC "${SEEKDB_CUVS_BRIDGE_ABS}")
+  message(STATUS "AMD hipVS/cuVS enabled: ${SEEKDB_CUVS_BRIDGE_ABS}")
+endif()
+
+# Developer instrumentation is independently opt-in and must be propagated
+# to the compiled vector adaptor (not merely defined as a CMake variable).
+if(OB_BUILD_CUVS_TRACE)
+  target_compile_definitions(oblib_lib PRIVATE OB_BUILD_CUVS_TRACE=1)
 endif()
