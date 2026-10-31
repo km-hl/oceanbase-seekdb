@@ -17,6 +17,7 @@
 #ifndef OB_DAS_IR_DEFINE_H_
 #define OB_DAS_IR_DEFINE_H_
 
+#include "data_plane/access/ob_tablet_scan.h"  // ObLimitParam
 #include "data_plane/blocksstable/ob_index_block_util.h"
 #include "query/das/ob_das_id_protocol.h"
 #include "ob_das_attach_define.h"
