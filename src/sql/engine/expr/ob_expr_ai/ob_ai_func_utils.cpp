@@ -1572,7 +1572,7 @@ int ObAIFuncModel::call_dense_embedding_vector_v2(ObArray<ObString> &content, Ob
               (dimension > 0 && actual_dimension != dimension) ||
               (inferred_dimension > 0 && inferred_dimension != actual_dimension)) {
             ret = OB_INVALID_DATA;
-            LOG_USER_ERROR(OB_INVALID_DATA, "ai_embed, invalid result vector dimension");
+            LOG_WARN("ai_embed returned a vector with invalid dimension", K(ret), K(actual_dimension), K(dimension));
           } else {
             inferred_dimension = actual_dimension;
             for (int64_t j = 0; OB_SUCC(ret) && j < actual_dimension; ++j) {
