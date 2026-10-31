@@ -17,6 +17,7 @@
 #define USING_LOG_PREFIX SQL_ENG
 #include "ob_ai_func_utils.h"
 #include "ob_ai_func_client.h"
+#include <cmath>
 #include "query/engine/expr/ob_ai_model_resolver.h"
 
 namespace oceanbase 
@@ -219,39 +220,92 @@ int ObOpenAIUtils::ObOpenAIEmbed::get_body(common::ObIAllocator &allocator,
   return ret;
 }
 
-int ObOpenAIUtils::ObOpenAIEmbed::parse_output(common::ObIAllocator &allocator, 
-                                               common::ObJsonObject *http_response,
-                                               common::ObIJsonBase *&result) 
+int ObOpenAIUtils::ObOpenAIEmbed::parse_output(common::ObIAllocator &allocator,
+                                                common::ObJsonObject *http_response,
+                                                common::ObIJsonBase *&result)
 {
   int ret = OB_SUCCESS;
+  ObJsonNode *data_node = nullptr;
+  ObJsonArray *result_array = nullptr;
   if (OB_ISNULL(http_response)) {
     ret = OB_INVALID_ARGUMENT;
+  } else if (OB_ISNULL(data_node = http_response->get_value("data")) ||
+             data_node->json_type() != ObJsonNodeType::J_ARRAY) {
+    ret = OB_INVALID_DATA;
+  } else if (OB_FAIL(ObAIFuncJsonUtils::get_json_array(allocator, result_array))) {
   } else {
-    ObJsonArray *result_array = nullptr;
-    ObJsonNode *data_node = nullptr;
-    if (OB_FAIL(ObAIFuncJsonUtils::get_json_array(allocator, result_array))) {
-    } else if (OB_ISNULL(data_node = http_response->get_value("data"))) {
+    ObJsonArray *data = static_cast<ObJsonArray *>(data_node);
+    const int64_t count = data->element_count();
+    ObArray<ObJsonNode *> by_index;
+    int64_t embedding_dimension = -1;
+    if (count <= 0) {
       ret = OB_INVALID_DATA;
-    } else {
-      ObJsonArray *data_array = static_cast<ObJsonArray *>(data_node);
-      ObJsonNode *embedding_node = nullptr;
-      for (int64_t i = 0; OB_SUCC(ret) && i < data_array->element_count(); i++) {
-        if (OB_ISNULL(embedding_node = data_array->get_value(i))) {
-          ret = OB_INVALID_DATA;
-        } else if (embedding_node->json_type() != ObJsonNodeType::J_OBJECT) {
+    }
+    for (int64_t i = 0; OB_SUCC(ret) && i < count; ++i) {
+      if (OB_FAIL(by_index.push_back(nullptr))) {
+      }
+    }
+
+    // OpenAI can return embedding entries out of request order. Validate all
+    // indices before publishing any result, preventing duplicate/missing rows.
+    for (int64_t i = 0; OB_SUCC(ret) && i < count; ++i) {
+      ObJsonNode *entry = data->get_value(i);
+      if (OB_ISNULL(entry) || entry->json_type() != ObJsonNodeType::J_OBJECT) {
+        ret = OB_INVALID_DATA;
+      } else {
+        ObJsonObject *item = static_cast<ObJsonObject *>(entry);
+        ObJsonNode *index_node = item->get_value("index");
+        ObJsonNode *embedding_node = item->get_value("embedding");
+        int64_t index = 0;
+        if (OB_ISNULL(index_node) && count == 1) {
+          index = 0;
+        } else if (OB_ISNULL(index_node) ||
+                   index_node->json_type() != ObJsonNodeType::J_INT) {
           ret = OB_INVALID_DATA;
         } else {
-          ObJsonObject *embedding_obj = static_cast<ObJsonObject *>(embedding_node);
-          ObJsonNode *embedding = embedding_obj->get_value("embedding");
-          if (OB_ISNULL(embedding)) {
+          index = static_cast<ObJsonInt *>(index_node)->get_int();
+        }
+        if (OB_FAIL(ret)) {
+        } else if (index < 0 || index >= count || OB_NOT_NULL(by_index.at(index))) {
+          ret = OB_INVALID_DATA;
+        } else if (OB_ISNULL(embedding_node) ||
+                   embedding_node->json_type() != ObJsonNodeType::J_ARRAY) {
+          ret = OB_INVALID_DATA;
+        } else {
+          ObJsonArray *vector = static_cast<ObJsonArray *>(embedding_node);
+          if (vector->element_count() == 0 ||
+              (embedding_dimension >= 0 && embedding_dimension != vector->element_count())) {
             ret = OB_INVALID_DATA;
-          } else if (OB_FAIL(result_array->append(embedding))) {
+          } else {
+            embedding_dimension = vector->element_count();
+            for (int64_t j = 0; OB_SUCC(ret) && j < embedding_dimension; ++j) {
+              ObJsonNode *number = vector->get_value(j);
+              if (OB_ISNULL(number) ||
+                  (number->json_type() != ObJsonNodeType::J_INT &&
+                   number->json_type() != ObJsonNodeType::J_UINT &&
+                   number->json_type() != ObJsonNodeType::J_DOUBLE &&
+                   number->json_type() != ObJsonNodeType::J_DECIMAL)) {
+                ret = OB_INVALID_DATA;
+              } else if (number->json_type() == ObJsonNodeType::J_DOUBLE &&
+                         !std::isfinite(static_cast<ObJsonDouble *>(number)->value())) {
+                ret = OB_INVALID_DATA;
+              }
+            }
+            if (OB_SUCC(ret)) {
+              by_index.at(index) = embedding_node;
+            }
           }
         }
       }
-      if (OB_SUCC(ret)) {
-        result = result_array;
+    }
+    for (int64_t i = 0; OB_SUCC(ret) && i < count; ++i) {
+      if (OB_ISNULL(by_index.at(i))) {
+        ret = OB_INVALID_DATA;
+      } else if (OB_FAIL(result_array->append(by_index.at(i)))) {
       }
+    }
+    if (OB_SUCC(ret)) {
+      result = result_array;
     }
   }
   return ret;
