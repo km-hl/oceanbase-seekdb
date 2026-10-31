@@ -1388,7 +1388,9 @@ int ObAIFuncModel::call_completion(ObString &prompt, ObJsonObject *config, ObStr
     ObString response_str;
     if (OB_NOT_NULL(response) && OB_SUCCESS == ObAIFuncJsonUtils::print_json_to_str(*allocator_, response, response_str)) {
       char http_message_str[1024];
-      snprintf(http_message_str, sizeof(http_message_str), "unexpected http message: %s", response_str.ptr());
+      snprintf(http_message_str, sizeof(http_message_str), "unexpected http message: %.*s",
+                 static_cast<int>(MIN(response_str.length(), static_cast<int64_t>(sizeof(http_message_str) - 26))),
+                 response_str.ptr());
       ObString ob_http_message_str(http_message_str);
       FORWARD_USER_ERROR(ret, ob_http_message_str.ptr());
     } else {
@@ -1432,11 +1434,11 @@ int ObAIFuncModel::call_completion_vector(ObArray<ObString> &prompts, ObJsonObje
   } else {
     for (int i = 0; OB_SUCC(ret) && i < response_array.count(); i++) {
       ObJsonObject *response = response_array[i];
-      ObStringBuffer result_buf(allocator_);
       if (OB_FAIL(complete_provider->parse_output(*allocator_, response, result_base))) {
-      } else if (OB_FAIL(result_base->print(result_buf, 0))) {
-      } else {
-        results.push_back(result_buf.string());
+      } else if (OB_ISNULL(result_base) || result_base->json_type() != ObJsonNodeType::J_STRING ||
+                 static_cast<ObJsonString *>(result_base)->get_str().empty()) {
+        ret = OB_INVALID_DATA;
+      } else if (OB_FAIL(results.push_back(static_cast<ObJsonString *>(result_base)->get_str()))) {
       }
     }
   }
@@ -1594,7 +1596,9 @@ int ObAIFuncModel::call_dense_embedding_vector_v2(ObArray<ObString> &content, Ob
     ObString response_str;
     if (OB_NOT_NULL(response) && OB_SUCCESS == ObAIFuncJsonUtils::print_json_to_str(*allocator_, response, response_str)) {
       char http_message_str[1024];
-      snprintf(http_message_str, sizeof(http_message_str), "unexpected http message: %s", response_str.ptr());
+      snprintf(http_message_str, sizeof(http_message_str), "unexpected http message: %.*s",
+                 static_cast<int>(MIN(response_str.length(), static_cast<int64_t>(sizeof(http_message_str) - 26))),
+                 response_str.ptr());
       ObString ob_http_message_str(http_message_str);
       FORWARD_USER_ERROR(ret, ob_http_message_str.ptr());
     } else {
@@ -1632,7 +1636,9 @@ int ObAIFuncModel::call_rerank(ObString &query, ObJsonArray *contents, ObJsonArr
     ObString response_str;
     if (OB_NOT_NULL(response) && OB_SUCCESS == ObAIFuncJsonUtils::print_json_to_str(*allocator_, response, response_str)) {
       char http_message_str[1024];
-      snprintf(http_message_str, sizeof(http_message_str), "unexpected http message: %s", response_str.ptr());
+      snprintf(http_message_str, sizeof(http_message_str), "unexpected http message: %.*s",
+                 static_cast<int>(MIN(response_str.length(), static_cast<int64_t>(sizeof(http_message_str) - 26))),
+                 response_str.ptr());
       ObString ob_http_message_str(http_message_str);
       FORWARD_USER_ERROR(ret, ob_http_message_str.ptr());
     } else {
