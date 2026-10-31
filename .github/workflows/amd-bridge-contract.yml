@@ -1,0 +1,22 @@
+name: AMD CAGRA bridge mock contract
+on:
+  push:
+    branches: [amd-opt-v1]
+    paths:
+      - "tools/hipvs_bridge/**"
+      - ".github/workflows/amd-bridge-contract.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  abi-and-reuse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Bash syntax
+        run: bash -n tools/hipvs_bridge/tests/mock_bridge_smoke.sh
+      - name: Compile and exercise mocked C API
+        run: bash tools/hipvs_bridge/tests/mock_bridge_smoke.sh
