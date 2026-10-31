@@ -1376,9 +1376,13 @@ int ObAIFuncModel::call_completion(ObString &prompt, ObJsonObject *config, ObStr
   } else if (OB_FAIL(complete_provider->get_body(*allocator_, request_model_name, prompt_str, prompt, config, body))) {
   } else if (OB_FAIL(client.send_post(*allocator_, endpoint_info_.get_url(), headers, body, response))) {
   } else if (OB_FAIL(complete_provider->parse_output(*allocator_, response, result_base))) {
-  } else if (OB_FAIL(ObAIFuncJsonUtils::print_json_to_str(*allocator_, result_base, result_str))) {
+  } else if (OB_ISNULL(result_base) || result_base->json_type() != ObJsonNodeType::J_STRING) {
+    ret = OB_INVALID_DATA;
+  } else if (static_cast<ObJsonString *>(result_base)->get_str().empty()) {
+    ret = OB_INVALID_DATA;
   } else {
-    result = result_str;
+    // A completion is SQL text, not a JSON-quoted literal.
+    result = static_cast<ObJsonString *>(result_base)->get_str();
   }
   if (ret == OB_INVALID_DATA) {
     ObString response_str;
