@@ -18,6 +18,18 @@
 
 以上改动旨在减少 **索引构建 / TOKENIZE / 查询分词**共享热路径上的重复分配、转换和冗余聚合，**没有有意修改分词器词法规则、停用词列表、倒排数据格式或用户可见的 BM25 评分语义**。正确性需要依赖下述回归验证，不能只依据查询命中数。
 
+## 第三轮优化与评测记录（2026-10-31）
+
+2026-10-30 23:49 的官方评测：提交 `01105d6af90a0d323e7bf578ea054b2318cbe0e0`，显示 **4.683 / 50**，执行成功。评测 JSON 记录 `fts_mean_improvement=0.04682935928890157`、`fts_raw_score=9.365871857780315`。四个查询命中量仍为 8001 / 11000 / 7332 / 20。`git_dirty=1` 仅表示构建运行环境工作树非 clean，不能据此断言分数为何变化。
+
+第三轮只增加保守的词典/字符处理优化，保留已获分提交供回退：
+
+- `src/storage/fts/dict/ob_ft_range_dict.cpp/.h`：IK 词典分区范围有序且互不重叠时使用二分查找，否则继续执行线性查找；使用 utf8mb4_bin 的逐字节比较快速路径。
+- `src/storage/fts/ik/ob_ik_char_util.h`：常见 ASCII 英文字母、数字和连接符避免通用 Unicode 字符分类开销。
+- `src/share/text_analysis/ob_token_stream.cpp`：UTF-8 ASCII 路径直接以一个字节推进，非 ASCII 保留多字节长度解析。
+
+这些增量修改基于已公开的 OceanBase seekdb FTS 性能优化实现（<https://github.com/oceanbase/seekdb/pull/2246>），但**本分支本轮代码尚未获得官方基准结果**，不能声称已取得更高分。建议新提交与已知 4.683 分的提交交替重测，观察 `tokenize_ik_avg_ms`、`build_ik_all_sec`、`build_ik_content_sec`、`query_limit_avg_ms`；不要因为一次波动而认定加速有效。
+
 ## 1. 准备两套可运行的二进制
 
 建议分别从原分支 `2026-competition` 和优化分支 `fulltext-index-tuning` 构建 seekdb，并在同一台机器上以**不同端口、不同数据目录**启动。保持 CPU、内存、租户配置、并行度、数据规模一致。可依次启动两套服务以降低资源竞争，但不要把两个版本指向同一数据目录。
