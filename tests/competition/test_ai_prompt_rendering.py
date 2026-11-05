@@ -44,6 +44,8 @@ class RecordingServer(HTTPServer):
     def __init__(self):
         super().__init__(("127.0.0.1", 0), RecordingHandler)
         self.requests = queue.Queue()
+        self.response: object = {"choices": [{"message": {"role": "assistant", "content": REPLY}}]}
+        self.response_status = 200
 
 
 class RecordingHandler(BaseHTTPRequestHandler):
@@ -53,9 +55,8 @@ class RecordingHandler(BaseHTTPRequestHandler):
         # Record before replying so the synchronous SQL call cannot outrun us.
         # Do not retain/log Authorization or database credentials.
         cast(RecordingServer, self.server).requests.put((self.path, raw))
-        payload = json.dumps({"choices": [{"message": {
-            "role": "assistant", "content": REPLY}}]}).encode("utf-8")
-        self.send_response(200 if self.path == PATH else 404)
+        payload = json.dumps(cast(RecordingServer, self.server).response).encode("utf-8")
+        self.send_response(cast(RecordingServer, self.server).response_status if self.path == PATH else 404)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Connection", "close")
@@ -162,6 +163,75 @@ class AIPromptRendering(unittest.TestCase):
         envelope = json.loads(self.scalar("SELECT " + expression, parameters))
         self.assertEqual(envelope, {"template": template, "args": arguments})
         self.assertTrue(self.server.requests.empty(), "Constructor sent HTTP")
+
+    def test_longtext_column_completion(self):
+        name = "complete_lob_" + uuid.uuid4().hex
+        self.execute(f"CREATE TABLE `{name}` (t LONGTEXT)", ())
+        try:
+            text = "世界" * 40000
+            self.execute(f"INSERT INTO `{name}` VALUES (%s)", (text,))
+            result = self.scalar(f"SELECT AI_COMPLETE(%s,t) FROM `{name}`", (self.model,))
+            self.assertEqual(result, REPLY)
+            self.assertEqual(self.captured_prompt(), text)
+        finally:
+            self.execute(f"DROP TABLE `{name}`", ())
+
+    def test_invalid_json_config_never_sends_http(self):
+        for config in ("[]", "null", "1", '"not-an-object"'):
+            with self.subTest(config=config):
+                with self.assertRaises(pymysql.err.DatabaseError) as caught:
+                    self.scalar("SELECT AI_COMPLETE(%s,%s,CAST(%s AS JSON))",
+                                (self.model, "bad-config", config))
+                self.assertNotIn(caught.exception.args[0], range(2000, 3000))
+                self.assertTrue(self.server.requests.empty())
+                self.assertEqual(self.scalar("SELECT 1"), 1)
+
+    def test_http_error_is_not_a_valid_completion(self):
+        self.server.response_status = 503
+        with self.assertRaises(pymysql.err.DatabaseError) as caught:
+            self.scalar("SELECT AI_COMPLETE(%s,%s)", (self.model, "http-error"))
+        self.assertNotIn(caught.exception.args[0], range(2000, 3000))
+        # HTTP 503 is retryable: the native client makes one attempt plus
+        # three retries. Validate each real request instead of assuming one.
+        self.assertEqual(self.server.requests.qsize(), 4)
+        while not self.server.requests.empty():
+            path, raw = self.server.requests.get_nowait()
+            self.assertEqual(path, PATH)
+            body = json.loads(raw)
+            self.assertEqual(body["model"], self.request_model)
+            self.assertEqual(body["messages"][0]["content"], "http-error")
+        self.assertEqual(self.scalar("SELECT 1"), 1)
+
+    def test_null_config_is_absent(self):
+        result = self.scalar("SELECT AI_COMPLETE(%s,%s,NULL)", (self.model, "null-config"))
+        self.assertEqual(result, REPLY)
+        self.assertEqual(self.captured_prompt(), "null-config")
+
+    def test_native_json_config_is_forwarded(self):
+        config = {"temperature": 0.2, "max_tokens": 16}
+        result = self.scalar("SELECT AI_COMPLETE(%s,%s,CAST(%s AS JSON))",
+                             (self.model, "json-config", json.dumps(config)))
+        self.assertEqual(result, REPLY)
+        path, raw = self.server.requests.get(timeout=2)
+        self.assertEqual(path, PATH)
+        request = json.loads(raw)
+        self.assertEqual(request["temperature"], config["temperature"])
+        self.assertEqual(request["max_tokens"], config["max_tokens"])
+        self.assertEqual(request["messages"][0]["content"], "json-config")
+        self.assertTrue(self.server.requests.empty())
+
+    def test_invalid_completion_responses_are_sql_errors(self):
+        for payload in ({"choices": []},
+                        {"choices": [{"message": {"content": None}}]},
+                        {"choices": [{"message": {"content": ""}}]},
+                        {"choices": [{"message": {"content": {"not": "text"}}}]}):
+            with self.subTest(payload=payload):
+                self.server.response = payload
+                with self.assertRaises(pymysql.err.DatabaseError) as caught:
+                    self.scalar("SELECT AI_COMPLETE(%s,%s)", (self.model, "invalid-response"))
+                self.assertNotIn(caught.exception.args[0], range(2000, 3000))
+                self.assertEqual(self.captured_prompt(), "invalid-response")
+                self.assertEqual(self.scalar("SELECT 1"), 1)
 
     def test_repeat_long_string(self):
         argument = 'long-世界-"\\\n' * 4096

@@ -103,6 +103,12 @@ class AIPromptIntegration(unittest.TestCase):
         self.assertEqual(self.scalar("SELECT 1"), 1,
                          "Session must remain usable after rejected input")
 
+    def test_official_array_object_example(self):
+        self.assert_prompt(
+            "SELECT AI_PROMPT('{0}/{0}/{1}', JSON_ARRAY(1,true), JSON_OBJECT('k',2))",
+            "{0}/{0}/{1}", [[1, True], {"k": 2}],
+        )
+
     def test_json_array_roundtrip(self):
         result = self.envelope("SELECT AI_PROMPT('{0}', JSON_ARRAY(1,true))")
         self.assertEqual(result["template"], "{0}")
